@@ -1,0 +1,102 @@
+FROM php:8.3.6-zts
+
+COPY ./files/dsdriver10.1x64.tar /opt/ibm/
+COPY ./files/php.ini /usr/local/etc/php/
+
+ENV IBM_DB_HOME=/opt/ibm/dsdriver
+ENV DB2CLIINIPATH=/etc
+
+#Install Packages
+RUN cd /opt/ibm && tar -xf dsdriver10.1x64.tar && \
+    chmod 755 dsdriver/installDSDriver && \
+    apt update && apt install -y gnupg && \
+    curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
+    curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get update && \
+    ACCEPT_EULA=Y apt install -y msodbcsql18 && \
+    chmod +rwx /etc/ssl/openssl.cnf && \
+    sed -i 's/TLSv1.2/TLSv1/g' /etc/ssl/openssl.cnf && \
+    sed -i 's/SECLEVEL=2/SECLEVEL=1/g' /etc/ssl/openssl.cnf && \
+    apt update && \
+    apt install -y \
+    libpq-dev \
+    unixodbc \
+    unixodbc-dev \
+    zlib1g-dev \
+    libssh2-1-dev \
+    libpng-dev \
+    libzip-dev \
+    systemtap-sdt-dev \
+    libaio1 \
+    wget \
+    unzip \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    ksh \
+    git \
+    libc-client-dev \
+    libkrb5-dev && \
+    rm -r /var/lib/apt/lists/* && \
+    wget http://pear.php.net/go-pear.phar && \
+    php go-pear.phar && \
+    php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" && \
+    php composer-setup.php --install-dir=/bin --filename=composer && \
+#Install IBM DB2
+    cd /opt/ibm/dsdriver && \
+    ksh installDSDriver && \
+#Install Oracle OCI8
+    mkdir /usr/lib/oracle && \
+    mkdir /usr/lib/oracle/21.10 && \
+    mkdir /usr/lib/oracle/21.10/client64 && \
+    wget https://download.oracle.com/otn_software/linux/instantclient/2110000/instantclient-basic-linux.x64-21.10.0.0.0dbru.zip && \
+    wget https://download.oracle.com/otn_software/linux/instantclient/2110000/instantclient-sdk-linux.x64-21.10.0.0.0dbru.zip && \
+    mv instantclient-basic-linux.x64-21.10.0.0.0dbru.zip /usr/lib/oracle/21.10/client64 && \
+    mv instantclient-sdk-linux.x64-21.10.0.0.0dbru.zip /usr/lib/oracle/21.10/client64 && \
+    cd /usr/lib/oracle/21.10/client64/ && \
+    unzip instantclient-basic-linux.x64-21.10.0.0.0dbru.zip && \
+    unzip instantclient-sdk-linux.x64-21.10.0.0.0dbru.zip && \
+    rm -rf instantclient-basic-linux.x64-21.10.0.0.0dbru.zip && \
+    rm -rf instantclient-sdk-linux.x64-21.10.0.0.0dbru.zip && \
+    mv /usr/lib/oracle/21.10/client64/instantclient_21_10 /usr/lib/oracle/21.10/client64/lib && \
+    echo /usr/lib/oracle/21.10/client64/lib > /etc/ld.so.conf.d/oracle.conf && \ 
+    ldconfig && \
+#Install ODBC
+    docker-php-source extract && \
+    docker-php-ext-configure pdo_odbc --with-pdo-odbc=unixODBC,/usr/ && \
+    docker-php-ext-install pdo_odbc && \ 
+    cd /usr/src/php/ext/odbc && \
+    phpize && \
+    sed -ri 's@^ *test +"\$PHP_.*" *= *"no" *&& *PHP_.*=yes *$@#&@g' configure && \
+    ./configure --with-unixODBC=shared,/usr && \
+    docker-php-ext-install odbc && \
+#Install PHP Dependences
+    docker-php-ext-configure imap --with-kerberos --with-imap-ssl && docker-php-ext-install imap && docker-php-ext-enable imap && \
+    docker-php-ext-install opcache && docker-php-ext-enable opcache && \
+    docker-php-ext-install pdo_pgsql && docker-php-ext-enable pdo_pgsql && \
+    docker-php-ext-install pgsql && docker-php-ext-enable pgsql && \
+    docker-php-ext-install bcmath && docker-php-ext-enable bcmath && \
+    docker-php-ext-install calendar && docker-php-ext-enable calendar && \
+    docker-php-ext-install gd && docker-php-ext-enable gd && \
+    docker-php-ext-install pdo_mysql && docker-php-ext-enable pdo_mysql && \
+    docker-php-ext-install mysqli && docker-php-ext-enable mysqli && \
+    docker-php-ext-install zip && docker-php-ext-enable zip && \
+    docker-php-ext-install ftp && docker-php-ext-enable ftp && \
+    docker-php-ext-install sockets && docker-php-ext-enable sockets && \
+    pecl install \
+    parallel-1.2.1 \
+    openswoole-22.1.2 \
+    redis-6.0.2 \
+    uopz-7.1.1 \
+    mongodb-1.18.1 \
+    oci8-3.3.0 \ 
+    ibm_db2-2.2.0 \
+    sqlsrv-5.12.0 \
+    pdo_sqlsrv-5.12.0 \
+    ssh2-1.4.1
+
+RUN sed -i -E "s/openssl_init/default_conf/" /etc/ssl/openssl.cnf
+RUN echo "[ default_conf ]\nssl_conf = ssl_sect\n[ssl_sect]\nsystem_default = system_default_sect\n[system_default_sect]\nMinProtocol = TLSv1.2\nCipherString = DEFAULT@SECLEVEL=0" >> /etc/ssl/openssl.cnf
+
+WORKDIR /app
+
+CMD [ "/bin/bash" ]
